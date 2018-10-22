@@ -13,14 +13,14 @@ Function Main()
 	If Not DB Then Return
 	
 	' Create new 'users' table
-	Local result := DB.Query( "CREATE TABLE 'users' (
+	Local result := DB.Query( "CREATE TABLE users (
 	 'id' INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
 	 'name' TEXT,
 	 'salt' TEXT,
 	 'password' TEXT );" )
 	
 	' Add new users to the table
-	result = DB.Query( "INSERT INTO 'users' (
+	result = DB.Query( "INSERT INTO users (
 	 name,
 	 salt,
 	 password )
@@ -29,7 +29,7 @@ Function Main()
 	 'Salty',
 	 'MyPassword' );" )
 	
-	result = DB.Query( "INSERT INTO 'users' (
+	result = DB.Query( "INSERT INTO users (
 	 name,
 	 salt,
 	 password )
@@ -39,7 +39,7 @@ Function Main()
 	 'SomePassword' );" )
 	
 	' Print salt from a specific user
-	result = DB.Query( "SELECT 'salt'
+	result = DB.Query( "SELECT salt
 	FROM users
 	WHERE name = 'First User';" )
 	
