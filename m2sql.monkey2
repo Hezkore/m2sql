@@ -47,14 +47,15 @@ Class Database
 	Method Prepare:Statement( data:String )
 		
 		Local nS := New Statement( Self )
+		nS.data = data
 		
-		If sqlite3_prepare_v2( db, data, -1, Varptr nS.res, Null ) = SQLITE_OK
+		If sqlite3_prepare_v2( db, data, -1, Varptr nS.stmt, Null ) = SQLITE_OK
 		
 			Return nS
 		Else
 			
 			Print "Failed to Prepare Query - " + sqlite3_errmsg( db )
-			sqlite3_finalize( nS.res )
+			sqlite3_finalize( nS.stmt )
 		Endif
 		
 		Return Null
@@ -67,7 +68,7 @@ Class Database
 		
 		If tmp Then
 			
-			Return tmp.Execute()
+			Return tmp.Execute( True )
 		Endif
 		
 		Return Null
@@ -76,98 +77,135 @@ Class Database
 	Class Statement
 		
 		Field Parent:Database
-		Field res:sqlite3_stmt Ptr
+		Field stmt:sqlite3_stmt Ptr
+		Field result:JsonObject
+		Field data:String
+		
+		Operator To:String()
+			
+			If Not result Then Return Null
+			
+			Return result.ToString()
+		End
+		
+		Property Data:String()
+			
+			Return data
+		End
+		
+		Property Result:JsonObject()
+			
+			Return result
+		End
 		
 		Method New( parent:Database )
 			
 			Parent = parent
 		End
 		
-		' Bind int
-		Method BindInt( index:Int, value:Int )
+		Method Reset()
 			
-			If Not sqlite3_bind_int( res, index, value ) = SQLITE_OK Then
+			If stmt Then sqlite3_reset( stmt )
+		End
+		
+		Method Discard()
+			
+			If stmt Then
 				
-				Print "Failed to Bind Int - " + sqlite3_errmsg( Parent.db )
-				sqlite3_finalize( res )
+				sqlite3_finalize( stmt )
+				stmt = Null
 			Endif
 		End
 		
-		' Bind double
+		' Bind Int
+		Method BindInt( index:Int, value:Int )
+			
+			If Not sqlite3_bind_int( stmt, index, value ) = SQLITE_OK Then
+				
+				Print "Failed to Bind Int - " + sqlite3_errmsg( Parent.db )
+				sqlite3_finalize( stmt )
+				stmt = Null
+			Endif
+		End
+		
+		' Bind Double
 		Method BindDouble( index:Int, value:Double )
 			
-			If Not sqlite3_bind_double( res, index, value ) = SQLITE_OK Then
+			If Not sqlite3_bind_double( stmt, index, value ) = SQLITE_OK Then
 				
 				Print "Failed to Bind Double - " + sqlite3_errmsg( Parent.db )
-				sqlite3_finalize( res )
+				sqlite3_finalize( stmt )
+				stmt = Null
 			Endif
 		End
 		
 		' Bind Null
 		Method BindNull( index:Int )
 			
-			If Not sqlite3_bind_null( res, index ) = SQLITE_OK Then
+			If Not sqlite3_bind_null( stmt, index ) = SQLITE_OK Then
 				
 				Print "Failed to Bind Null - " + sqlite3_errmsg( Parent.db )
-				sqlite3_finalize( res )
+				sqlite3_finalize( stmt )
+				stmt = Null
 			Endif
 		End
 		
 		' Bind Text
 		Method BindText( index:Int, text:String )
 			
-			If Not sqlite3_bind_text( res, index, text, -1, SQLITE_TRANSIENT ) = SQLITE_OK Then
+			If Not sqlite3_bind_text( stmt, index, text, -1, SQLITE_TRANSIENT ) = SQLITE_OK Then
 				
 				Print "Failed to Bind Text - " + sqlite3_errmsg( Parent.db )
-				sqlite3_finalize( res )
+				sqlite3_finalize( stmt )
+				stmt = Null
 			Endif
 		End
 		
 		' Execute the statment and return JSON data
-		Method Execute:JsonObject()
+		Method Execute:JsonObject( discard:Bool = False )
 			
-			Local rowsobj := New JsonObject
-			Local colnum:Int = sqlite3_column_count( res ) ' Get Result Count
+			result = New JsonObject
+			Local colnum:Int = sqlite3_column_count( stmt ) ' Get Result Count
 			Local rownum:Int = 0
 			
 			Repeat
 				
-				If sqlite3_step( res ) = SQLITE_ROW ' If there's a Row
+				If stmt And sqlite3_step( stmt ) = SQLITE_ROW ' If there's a Row
 					
 					'Local print_string := "" ' Debug Output
 					
 					' Create New Row in Json
-					Local row_id := Cast<String>( rownum ) ' Get Row String ID
-					rowsobj[row_id] = New JsonObject ' Create New Row from String ID
+					Local row_id := String( rownum ) ' Get Row String ID
+					result[row_id] = New JsonObject ' Create New Row from String ID
 					
-					Local newrow := rowsobj.GetObject(row_id) ' Get New Row Ref
+					Local newrow := result.GetObject( row_id ) ' Get New Row Ref
 					
 					' Generate Rows
 					For Local i:Int = 0 Until colnum
 						
-						Local typeint := sqlite3_column_type( res, i ) ' Get Type of Entry
-						Local colname := sqlite3_column_name( res, i ) ' Get Column Name
+						Local typeint := sqlite3_column_type( stmt, i ) ' Get Type of Entry
+						Local colname := sqlite3_column_name( stmt, i ) ' Get Column Name
 						
 						Select typeint ' Determine the Correct Data Type
 							
 							Case 1 ' ADD INTEGER COLUMN
 								
-								Local colval:Int = sqlite3_column_int( res, i )
-								newrow.SetNumber(colname, colval)
+								Local colval:Int = sqlite3_column_int( stmt, i )
+								newrow.SetNumber( colname, colval )
 								
 								'print_string += "INTEGER:" + colname + " " + colval + " | "
 								
 							Case 2 ' ADD FLOAT/REAL COLUMN
 								
-								Local colval:Double = sqlite3_column_double( res, i )
-								newrow.SetNumber(colname, colval)
+								Local colval:Double = sqlite3_column_double( stmt, i )
+								newrow.SetNumber( colname, colval )
 								
 								'print_string += "REAL:" + colname + " " + colval + " | "
 								
 							Case 3 ' ADD STRING/TEXT COLUMN
 								
-								Local colval := sqlite3_column_text( res, i )
-								newrow.SetString(colname, colval)
+								Local colval := sqlite3_column_text( stmt, i )
+								newrow.SetString( colname, colval )
 								
 								'print_string += "TEXT:" + colname + " " + colval + " | "
 								
@@ -178,7 +216,7 @@ Class Database
 								
 							Default ' NOT AN ACCEPTABLE TYPE FOR NOW
 								
-								Print "Unknown sqlite 3 type - " + typeint
+								Print "Unknown sqlite3 type - " + typeint
 								'print_string += "UNKNOWN TYPE"
 								
 						End Select
@@ -192,11 +230,17 @@ Class Database
 				End
 			Forever
 			
-			sqlite3_finalize( res ) ' Clean up stmt?
+			If discard Then
+				
+				Discard() ' Discard
+			Else
+			
+				Reset() ' Reset
+			Endif
 			
 			If rownum <= 0 Then Return Null
 			
-			Return rowsobj
+			Return result
 		End Method
 	End Class
 End Class
